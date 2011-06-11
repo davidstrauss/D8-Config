@@ -99,7 +99,7 @@ class SignedFileStorage {
   }
 
   public function write($data) {
-    $data = "return\n" . drupal_var_export($data) . ';';
+    $data = _drupal_config_wrap($data);
     $signature = config_sign_data($data);
     $content = '<?php $hash="' . $signature . '";' . $data;
     if (!file_put_contents($this->getFilePath(), $content)) {
@@ -115,6 +115,10 @@ class SignedFileStorage {
       return include_once($this->getFilePath());
     }
   }
+}
+
+function _drupal_config_wrap($data) {
+  return "return\n" . drupal_var_export($data) . ';';
 }
 
 interface DrupalConfigVerifiedStorageInterface {
@@ -214,7 +218,7 @@ class DrupalVerifiedStorageSQL extends DrupalConfigVerifiedStorage {
   public function writeToActive($data) {
     return db_merge('config')
       ->key(array('name' => $this->name))
-      ->fields(array('data' => "<?php return $data;"))
+      ->fields(array('data' => '<?php '. _drupal_config_wrap($data)))
       ->execute();
   }
 
@@ -269,7 +273,7 @@ class DrupalConfig {
         $obj->$key = $val;
       }
     }
-    $this->_verifiedStorage->write(drupal_var_export($obj));
+    $this->_verifiedStorage->write($obj);
   }
 }
 
