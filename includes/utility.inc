@@ -46,6 +46,9 @@ function drupal_var_export($var, $prefix = '') {
       $output = "'" . $var . "'";
     }
   }
+  elseif (is_object($var) && get_class($var) === 'stdClass') {
+    $output = '(object) ' . var_export((array) $var, TRUE);
+  }
   else {
     $output = var_export($var, TRUE);
   }

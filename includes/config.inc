@@ -68,10 +68,15 @@ class SignedFileStorage {
    */
   protected function readAndSplit() {
     $content = file_get_contents($this->getFilePath());
-    if (!preg_match('/^<\?php \$hash="(?P<signature>[0-9a-f]{128})"; return.(?P<data>.*);$/s', $content, $matches)) {
+    list($header, $data) = explode(';', $content, 2);
+    if (!preg_match('/^<\?php \$hash="(?P<signature>[0-9a-f]{128})"$/', $header, $matches)) {
       throw new Exception('File has invalid header.');
     }
-    return $matches;
+    return array('signature' => $matches['signature'], 'data' => $data);;
+  }
+
+  protected function exists() {
+    return file_exists($this->getFilePath());
   }
 
   public function getFilePath() {
@@ -79,30 +84,36 @@ class SignedFileStorage {
   }
 
   public function resign() {
-    $parts = $this->readAndSplit();
-    $this->write($parts['data']);
+    if ($this->exists()) {
+      $parts = $this->readAndSplit();
+      $this->write($parts['data']);
+    }
   }
 
   public function verify($contentOnSuccess = FALSE) {
-    $split = $this->readAndSplit();
-    $expected_signature = config_sign_data($split['data']);
-    return ($expected_signature === $split['signature']);
+    if ($this->exists()) {
+      $split = $this->readAndSplit();
+      $expected_signature = config_sign_data($split['data']);
+      return ($expected_signature === $split['signature']);
+    }
   }
 
   public function write($data) {
+    $data = "return\n" . $data . ';';
     $signature = config_sign_data($data);
-    $content = '<?php $hash="' . $signature . "\"; return\n" . $data .';';
+    $content = '<?php $hash="' . $signature . '";' . $data;
     if (!file_put_contents($this->getFilePath(), $content)) {
       throw new Exception('Failed to write signed file.');
     }
   }
 
   public function read() {
-    $verification = $this->verify(TRUE);
-    if ($verification === FALSE) {
-      throw new Exception('Invalid signature in file header.');
+    if ($this->exists()) {
+      if (!$this->verify()) {
+        throw new Exception('Invalid signature in file header.');
+      }
+      return include_once($this->getFilePath());
     }
-    return include_once($this->getFilePath());
   }
 }
 
@@ -173,7 +184,7 @@ abstract class DrupalConfigVerifiedStorage implements DrupalConfigVerifiedStorag
   }
 
   public function copyTofile() {
-    return $this->signedFileStorage()->write($data);
+    return $this->signedFileStorage()->write($this->read());
   }
 
   public function copyFromFile() {
@@ -197,13 +208,18 @@ abstract class DrupalConfigVerifiedStorage implements DrupalConfigVerifiedStorag
 class DrupalVerifiedStorageSQL extends DrupalConfigVerifiedStorage {
 
   public function read() {
-    return db_query('SELECT data FROM {config} WHERE name = :name', array(':name' => $this->name))->fetchField();
+    return include("drupalconfig://$this->name");
+  }
+
+  public function copyTofile() {
+    // Need to cut out <?php return and the last;.
+    return $this->signedFileStorage()->write(substr(db_query('SELECT data FROM {config} WHERE name = :name', array(':name' => $this->name))->fetchField(), 13, -1));
   }
 
   public function writeToActive($data) {
     return db_merge('config')
       ->key(array('name' => $this->name))
-      ->fields(array('data' => $data))
+      ->fields(array('data' => "<?php return $data;"))
       ->execute();
   }
 
@@ -222,8 +238,10 @@ function config_get_names_with_prefix($prefix) {
 
 function config($name, $class = 'DrupalConfig') {
   static $overrides;
+  // Overrides is broken.
   if (!isset($overrides)) {
-    $overrides = SignedFileStorage('local')->read();
+    $storage = new SignedFileStorage('local');
+    $overrides = (array) $storage->read();
   }
   // Load defaults.
   $overrides += array($name => array());
@@ -245,9 +263,10 @@ class DrupalConfig {
   public function __construct(DrupalConfigVerifiedStorageInterface $verified_storage, $overrides = array()) {
     $this->_verifiedStorage = $verified_storage;
     $originals = $this->_verifiedStorage->read();
+    // Overrides is broken.
     $this->_overrides = $overrides;
-    $active = array_merge($original_keys, $overrides);
-    foreach ($active as $key => $value) {
+    $active = array_merge($originals, $overrides);
+    foreach ($originals as $key => $value) {
       $this->$key = $value;
     }
   }
@@ -263,7 +282,33 @@ class DrupalConfig {
         $obj->$key = $val;
       }
     }
-
     $this->_verifiedStorage->write(drupal_var_export($obj));
   }
 }
+
+class DrupalConfigSQLStreamWrapper {
+  public function stream_open($uri, $mode, $options, &$opened_url) {
+    // Remove drupalconfig://
+    $this->name = substr($uri, 15);
+    return TRUE;
+  }
+  public function stream_close() {}
+  public function stream_read($count) {
+    if (empty($this->result)) {
+      $this->result = db_query('SELECT data FROM {config} WHERE name = :name', array(':name' => $this->name))->fetchField();
+      $this->pos = 0;
+    }
+    $pos = $this->pos;
+    $this->pos += $count;
+    return substr($this->result, $pos, $count);
+  }
+  public function stream_eof() {
+    return isset($this->result[$this->pos]);
+  }
+  public function stream_tell() {
+    return $this->pos;
+  }
+  public function stream_stat() {
+  }
+}
+stream_wrapper_register('drupalconfig', 'DrupalConfigSQLStreamWrapper', 0);

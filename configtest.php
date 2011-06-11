@@ -26,3 +26,11 @@ echo $sfs->read() . PHP_EOL;
 //echo $sfs->read() . PHP_EOL;
 
 print_r(get_signed_file_storage_names_with_prefix());
+
+print '<hr>';
+
+$config = config('foo.bar');
+$config->foo = 'bar';
+$config->save();
+echo config('foo.bar')->foo;
+echo '<br>That should be bar';
