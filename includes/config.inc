@@ -1,5 +1,7 @@
 <?php
 
+require_once './includes/utility.inc';
+
 /**
  * @file
  * Configuration storage and management API.
@@ -7,7 +9,7 @@
 
 
 function get_signed_file_storage_names_with_prefix($prefix = '') {
-  $files = glob(conf_path() . '/config/' . $prefix . '*.json.php');
+  $files = glob(conf_path() . '/config/' . $prefix . '*.php');
   $clean_name = function ($value) {
     return basename($value, '.php');
   };
@@ -65,24 +67,15 @@ class SignedFileStorage {
    *   Exception
    */
   protected function readAndSplit() {
-    // TODO: Optimize with explicit offsets?
     $content = file_get_contents($this->getFilePath());
-    if ($content === FALSE) {
-      throw new Exception('Read file is invalid.');
+    if (!preg_match('/^<\?php \$hash="(?P<signature>[0-9a-f]{128})"; return.(?P<data>.*);$/s', $content, $matches)) {
+      throw new Exception('File has invalid header.');
     }
-    $parts = explode("\n", $content, 2);
-    if (count($parts) !== 2) {
-      throw new Exception('Read file does not verify.');
-    }
-    $header_parts = explode(' ', $parts[0]);
-    if (count($header_parts) !== 3) {
-      throw new Exception('Read file not valid.');
-    }
-    return array('data' => $parts[1], 'signature' => $header_parts[2]);
+    return $matches;
   }
 
   public function getFilePath() {
-    return conf_path() . '/config/' . $this->name  . '.json.php';
+    return conf_path() . '/config/' . $this->name  . '.php';
   }
 
   public function resign() {
@@ -93,18 +86,12 @@ class SignedFileStorage {
   public function verify($contentOnSuccess = FALSE) {
     $split = $this->readAndSplit();
     $expected_signature = config_sign_data($split['data']);
-    if ($expected_signature === $split['signature']) {
-      if ($contentOnSuccess) {
-        return $split['data'];
-      }
-      return TRUE;
-    }
-    return FALSE;
+    return ($expected_signature === $split['signature']);
   }
 
   public function write($data) {
     $signature = config_sign_data($data);
-    $content = '<?php die(); ' . $signature . "\n" . $data;
+    $content = '<?php $hash="' . $signature . "\"; return\n" . $data .';';
     if (!file_put_contents($this->getFilePath(), $content)) {
       throw new Exception('Failed to write signed file.');
     }
@@ -115,7 +102,7 @@ class SignedFileStorage {
     if ($verification === FALSE) {
       throw new Exception('Invalid signature in file header.');
     }
-    return $verification;
+    return include_once($this->getFilePath());
   }
 }
 
@@ -203,7 +190,7 @@ abstract class DrupalConfigVerifiedStorage implements DrupalConfigVerifiedStorag
 
   public function write($data) {
     $this->writeToActive($data);
-    $this->syncToFile();
+    $this->copyToFile();
   }
 }
 
@@ -236,11 +223,12 @@ function config_get_names_with_prefix($prefix) {
 function config($name, $class = 'DrupalConfig') {
   static $overrides;
   if (!isset($overrides)) {
-    $overrides = (array) json_decode(SignedFileStorage('local'));
+    $overrides = SignedFileStorage('local')->read();
   }
-  $key_overrides = isset($overrides[$name]) ? $overrides[$name] : array();
+  // Load defaults.
+  $overrides += array($name => array());
   // @TODO Replace this with the appropriate factory.
-  return new $class(new DrupalVerifiedStorageSQL($name), $key_overrides);
+  return new $class(new DrupalVerifiedStorageSQL($name), $overrides[$name]);
 }
 
 class DrupalConfig {
@@ -256,7 +244,7 @@ class DrupalConfig {
 
   public function __construct(DrupalConfigVerifiedStorageInterface $verified_storage, $overrides = array()) {
     $this->_verifiedStorage = $verified_storage;
-    $original_keys = (array) json_decode($this->_verifiedStorage->read());
+    $originals = $this->_verifiedStorage->read();
     $this->_overrides = $overrides;
     $active = array_merge($original_keys, $overrides);
     foreach ($active as $key => $value) {
@@ -276,6 +264,6 @@ class DrupalConfig {
       }
     }
 
-    $this->_verifiedStorage->write(json_encode($obj));
+    $this->_verifiedStorage->write(drupal_var_export($obj));
   }
 }
