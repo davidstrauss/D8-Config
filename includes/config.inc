@@ -68,11 +68,10 @@ class SignedFileStorage {
    */
   protected function readAndSplit() {
     $content = file_get_contents($this->getFilePath());
-    list($header, $data) = explode(';', $content, 2);
-    if (!preg_match('/^<\?php \$hash="(?P<signature>[0-9a-f]{128})"$/', $header, $matches)) {
+    if (!preg_match('/^<\?php \$hash="(?P<signature>[0-9a-f]{128})";(?P<data>.*)$/s', $content, $matches)) {
       throw new Exception('File has invalid header.');
     }
-    return array('signature' => $matches['signature'], 'data' => $data);;
+    return $matches;
   }
 
   protected function exists() {
