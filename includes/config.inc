@@ -81,23 +81,31 @@ class SignedFileStorage {
     return array('data' => $parts[1], 'signature' => $header_parts[2]);
   }
 
+  protected function exists() {
+    return file_exists($this->getFilePath());
+  }
+
   public function getFilePath() {
     return conf_path() . '/config/' . $this->name  . '.json.php';
   }
 
   public function resign() {
-    $parts = $this->readAndSplit();
-    $this->write($parts['data']);
+    if ($this->exists()) {
+      $parts = $this->readAndSplit();
+      $this->write($parts['data']);
+    }
   }
 
   public function verify($contentOnSuccess = FALSE) {
-    $split = $this->readAndSplit();
-    $expected_signature = config_sign_data($split['data']);
-    if ($expected_signature === $split['signature']) {
-      if ($contentOnSuccess) {
-        return $split['data'];
+    if ($this->exists()) {
+      $split = $this->readAndSplit();
+      $expected_signature = config_sign_data($split['data']);
+      if ($expected_signature === $split['signature']) {
+        if ($contentOnSuccess) {
+          return $split['data'];
+        }
+        return TRUE;
       }
-      return TRUE;
     }
     return FALSE;
   }
@@ -111,11 +119,13 @@ class SignedFileStorage {
   }
 
   public function read() {
-    $verification = $this->verify(TRUE);
-    if ($verification === FALSE) {
-      throw new Exception('Invalid signature in file header.');
+    if ($this->exists()) {
+      $verification = $this->verify(TRUE);
+      if ($verification === FALSE) {
+        throw new Exception('Invalid signature in file header.');
+      }
+      return $verification;
     }
-    return $verification;
   }
 }
 
@@ -186,7 +196,7 @@ abstract class DrupalConfigVerifiedStorage implements DrupalConfigVerifiedStorag
   }
 
   public function copyTofile() {
-    return $this->signedFileStorage()->write($data);
+    return $this->signedFileStorage()->write($this->read());
   }
 
   public function copyFromFile() {
@@ -203,7 +213,7 @@ abstract class DrupalConfigVerifiedStorage implements DrupalConfigVerifiedStorag
 
   public function write($data) {
     $this->writeToActive($data);
-    $this->syncToFile();
+    $this->copyToFile();
   }
 }
 
@@ -236,7 +246,8 @@ function config_get_names_with_prefix($prefix) {
 function config($name, $class = 'DrupalConfig') {
   static $overrides;
   if (!isset($overrides)) {
-    $overrides = (array) json_decode(SignedFileStorage('local'));
+    $storage = new SignedFileStorage('local');
+    $overrides = (array) json_decode($storage->read());
   }
   $key_overrides = isset($overrides[$name]) ? $overrides[$name] : array();
   // @TODO Replace this with the appropriate factory.
