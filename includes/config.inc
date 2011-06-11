@@ -275,8 +275,8 @@ class DrupalConfig {
 
 class DrupalConfigSQLStreamWrapper {
   public function stream_open($uri, $mode, $options, &$opened_url) {
-    // Remove drupalconfig://
-    $this->name = substr($uri, 15);
+    // Remove scheme
+    list(, $this->name) = explode('://', $uri, 2);
     return TRUE;
   }
   public function stream_close() {}
