@@ -279,7 +279,6 @@ class DrupalConfigSQLStreamWrapper {
     list(, $this->name) = explode('://', $uri, 2);
     return TRUE;
   }
-  public function stream_close() {}
   public function stream_read($count) {
     if (empty($this->result)) {
       $this->result = db_query('SELECT data FROM {config} WHERE name = :name', array(':name' => $this->name))->fetchField();
@@ -291,8 +290,6 @@ class DrupalConfigSQLStreamWrapper {
   }
   public function stream_eof() {
     return isset($this->result[$this->pos]);
-  }
-  public function stream_stat() {
   }
 }
 stream_wrapper_register('drupalconfig', 'DrupalConfigSQLStreamWrapper', 0);
