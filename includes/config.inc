@@ -232,16 +232,8 @@ function config_get_names_with_prefix($prefix) {
 }
 
 function config($name, $class = 'DrupalConfig') {
-  static $overrides;
-  // Overrides is broken.
-  if (!isset($overrides)) {
-    $storage = new SignedFileStorage('local');
-    $overrides = (array) $storage->read();
-  }
-  // Load defaults.
-  $overrides += array($name => array());
   // @TODO Replace this with the appropriate factory.
-  return new $class(new DrupalVerifiedStorageSQL($name), $overrides[$name]);
+  return new $class($name, new DrupalVerifiedStorageSQL($name));
 }
 
 class DrupalConfig {
@@ -255,13 +247,13 @@ class DrupalConfig {
 
   protected $_overrides;
 
-  public function __construct(DrupalConfigVerifiedStorageInterface $verified_storage, $overrides = array()) {
+  public function __construct($name, DrupalConfigVerifiedStorageInterface $verified_storage) {
     $this->_verifiedStorage = $verified_storage;
-    $originals = $this->_verifiedStorage->read();
-    // Overrides is broken.
-    $this->_overrides = $overrides;
-    $active = array_merge($originals, $overrides);
-    foreach ($originals as $key => $value) {
+    $config = $this->_verifiedStorage->read();
+    // Override. Ka-boom!
+    $override_file_name = conf_path() . '/local.php';
+    include $override_file_name;
+    foreach ($config as $key => $value) {
       $this->$key = $value;
     }
   }
