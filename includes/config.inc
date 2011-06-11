@@ -99,7 +99,7 @@ class SignedFileStorage {
   }
 
   public function write($data) {
-    $data = "return\n" . $data . ';';
+    $data = "return\n" . drupal_var_export($data) . ';';
     $signature = config_sign_data($data);
     $content = '<?php $hash="' . $signature . '";' . $data;
     if (!file_put_contents($this->getFilePath(), $content)) {
@@ -209,11 +209,6 @@ class DrupalVerifiedStorageSQL extends DrupalConfigVerifiedStorage {
 
   public function read() {
     return include("drupalconfig://$this->name");
-  }
-
-  public function copyTofile() {
-    // Need to cut out <?php return and the last;.
-    return $this->signedFileStorage()->write(substr(db_query('SELECT data FROM {config} WHERE name = :name', array(':name' => $this->name))->fetchField(), 13, -1));
   }
 
   public function writeToActive($data) {

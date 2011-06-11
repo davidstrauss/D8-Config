@@ -11,7 +11,7 @@ config_write_signed_file_storage_key();
 $sfs = new SignedFileStorage('one.two');
 
 // Write and read
-$sfs->write("'nothing'");
+$sfs->write('nothing');
 echo $sfs->read() . PHP_EOL;
 $existing_content = file_get_contents($sfs->getFilePath());
 echo $sfs->getFilePath() . PHP_EOL;
