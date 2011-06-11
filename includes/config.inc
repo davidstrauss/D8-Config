@@ -292,9 +292,6 @@ class DrupalConfigSQLStreamWrapper {
   public function stream_eof() {
     return isset($this->result[$this->pos]);
   }
-  public function stream_tell() {
-    return $this->pos;
-  }
   public function stream_stat() {
   }
 }
